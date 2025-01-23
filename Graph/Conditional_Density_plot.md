@@ -9,7 +9,6 @@ import seaborn as sns
 sns.kdeplot(
     data=diamonds,
     x="carat", hue="cut",
-    kind="kde", height=6,
     multiple="fill", clip=(0, None),
     palette="ch:rot=-.25,hue=1,light=.75",
 )

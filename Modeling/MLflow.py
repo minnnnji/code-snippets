@@ -96,7 +96,7 @@ def Decision_Tree_Record(data:pd.DataFrame, xcol:list, ycol:str, experiment_name
 def Random_Forest_Record(data:pd.DataFrame, xcol:list, ycol:str, experiment_name:str, Regression:bool=True, model_name:str=None):
     
     mlflow.set_tracking_uri("http://ip:port")
-    mlflow.set_experiment(title)
+    mlflow.set_experiment(experiment_name)
     
     if model_name == None: model_name = f'{get_next_run_name(experiment_name)}'
     
@@ -148,3 +148,111 @@ def Random_Forest_Record(data:pd.DataFrame, xcol:list, ycol:str, experiment_name
         mlflow.sklearn.log_model(model, "Model", signature=signature, input_example=X.iloc[:5])
 
     return model
+
+def OLS_Record(data:pd.DataFrame, xcol:list, ycol:str, experiment_name:str, model_name:str=None):
+    mlflow.set_tracking_uri("https://ip:port")
+    mlflow.set_experiment(experiment_name)
+    if model_name == None: model_name = f'{get_next_run_name(experiment_name)}'
+    
+    with mlflow.start_run(run_name=model_name):
+        X = sm.add_constant(data[xcol])
+        y = data[ycol]
+        
+        model = sm.OLS(y, X).fit()
+        
+        y_pred = model.predict(X)
+        
+        # Metiric
+        rmse = root_mean_squared_error(y, y_pred)
+        r2 = r2_score(y, y_pred)
+        mlflow.log_metrics({'RSME': round(rmse, 3),
+                            'precision':round(r2, 2)} )
+        print(f"RMSE: {rmse:.4f}")
+        print(f"R2: {r2:.4f}")
+
+        
+        model_summary = model.summary().as_text()
+        mlflow.log_text(model_summary, "model_summary.txt")
+        
+        signature = mlflow.models.infer_signature(X, y)
+        mlflow.sklearn.log_model(model, "model", signature=signature, input_example=X.iloc[:2])
+        mlflow.log_param("Model info", model_name)
+        
+        print("-" * 50)
+        print("model_summary: ")
+        print(model_summary)
+        
+    return model
+
+def get_model(experiment_name:str, model_name:str, save_mode=False):
+    """ MLflow실험에서 모델을 검색하여 반환하는 함수  
+
+    Args:
+        model_name (str): 검색할 모델이름
+        experiment_name (str): 검색할 실험 이름
+        save_mode (bool, optional): 일반 모델 검색시 0, artifact 저장시 1(함수 내에서만 사용), Defaults to 0.
+    """
+    try: 
+        mlflow.set_tracking_uri("http://ip:port")
+        experiment = mlflow.get_experiment_by_name(experiment_name)
+        
+        if experiment is None:
+            raise Exception(f"실험 '{experiment_name}'을 찾을 수 없습니다.")
+        
+        runs = mlflow.search_runs(
+                experiment_ids=[experiment.experiment_id],
+                filter_string=f"tags.mlflow.runName = '{model_name}'")
+        
+        if runs.empty:
+            raise Exception(f"실험 '{experiment_name}'에서 모델 '{model_name}'을 찾을 수 없습니다.")
+        
+        run = runs.iloc[0]
+        model_url= f"runs:/{run.run_id}/model"
+        if save_mode: model = mlflow.pyfunc.load_model(model_url)
+        else: model = mlflow.sklearn.load_model(model_url)
+        
+        return model
+    except Exception as e:
+        print(f"모델을 찾을 수 없습니다.\n{str(e)}")
+        print("실험 이름과 모델 이름을 확인해주세요.")
+        return None
+    
+def save_artifact_to_mlflow(file_path:str, experiment_name:str, model_name:str):
+    """파일을 MLflow 실험의 아티팩트로 저장하는 함수
+
+    Args:
+        file_path (str): 파일 경로
+        experiment_name (str): 실험 이름
+        model_name (str): 모델 이름
+    """
+    try:
+        model = get_model(experiment_name=experiment_name, model_name=model_name, save_mode=True)
+        if model is not None:
+            with mlflow.start_run(run_id=model.metadata.run_id):
+                mlflow.log_artifact(file_path)
+                print(f"파일 {file_path}이(가) 실험 '{experiment_name}'/'{model_name}'내에 저장되었습니다.")
+                
+    except Exception as e:
+        print(f"아티팩트 저장 중 오류 발생:{str(e)}")
+        
+        
+def find_node_name(tree, feature_names, node_id, result_dict, count=1, max_nodes=3):
+    if node_id == -1 or count > max_nodes:
+        return  # 노드 개수가 최대 개수를 초과하면 종료
+
+    feature_index = tree.feature[node_id]
+
+    if feature_index != -2:  # 리프 노드가 아닌 경우
+        feature_name = feature_names[feature_index]
+        result_dict[str(count)] = feature_name
+        count += 1
+
+    # 왼쪽 자식 노드 탐색
+    left_child = tree.children_left[node_id]
+    if count <= max_nodes and left_child != -1:
+        find_node_name(tree, feature_names, left_child, result_dict, count, max_nodes)
+
+    # 오른쪽 자식 노드 탐색
+    right_child = tree.children_right[node_id]
+    if count <= max_nodes and right_child != -1:
+        find_node_name(tree, feature_names, right_child, result_dict, count, max_nodes)
