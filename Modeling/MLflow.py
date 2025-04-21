@@ -12,7 +12,8 @@ import statsmodels as sm
 
 import matplotlib.pyplot as plt
 import seaborn as sns
-
+from matplotlib.gridspec import GridSpec
+    
 def get_next_run_name(experiment_name, base_name='model'):
     experiment = mlflow.get_experiment_by_name(experiment_name)
     experiment_id = experiment.experiment_id
@@ -26,6 +27,27 @@ def get_next_run_name(experiment_name, base_name='model'):
         return f"{base_name}_{max_number + 1}"
     except:
         return f"{base_name}_1"
+    
+def classification_result(model, y, y_pred):
+    accuracy = accuracy_score(y, y_pred)
+    f1 = f1_score(y, y_pred, average='weighted')
+    recall = recall_score(y, y_pred, average='weighted')
+    precision = precision_score(y, y_pred, average='weighted')
+
+    cm = confusion_matrix(y, y_pred)
+
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, cmap="Blues", 
+                xticklabels=model.classes_, 
+                yticklabels=model.classes_)
+
+    plt.ylabel("Actual")
+    plt.xlabel("Predicted")
+    plt.title("Confusion Matrix")
+    plt.savefig("confusion_matrix.png")
+    plt.close()
+
+    return accuracy, f1, recall, precision, cm
 
 def Decision_Tree_Record(data:pd.DataFrame, xcol:list, ycol:str, experiment_name:str, Regression:bool = True, max_depth = 3, model_name:str = None):
     mlflow.set_tracking_uri("https://ip:port")
@@ -43,54 +65,76 @@ def Decision_Tree_Record(data:pd.DataFrame, xcol:list, ycol:str, experiment_name
         
         y_pred = model.predict(X)
         
+        result_dict = {}
+        find_node_name(model.tree_, xcol, 0, result_dict)
+
+        # ✅ 결정 트리 시각화
         plt.figure(figsize=(15, 10))
-        plot_tree(model, feature_names=xcol, filled=True, fontsize=12,
-                  max_depth=3, rounded=True, impurity=False)
+        plot_tree(model, 
+                feature_names=xcol, 
+                filled=True, 
+                fontsize=12, 
+                max_depth=3, 
+                rounded=True, 
+                impurity=False)
         plt.savefig('decision_tree.png')
         plt.close()
-        
+
+        # ✅ 모델 및 파라미터 저장 (MLflow)
         mlflow.sklearn.log_model(model, "model")
-        mlflow.log_param("Model Info", model_name)
+        mlflow.log_params({
+            "features": xcol,
+            "target": ycol,
+            "data_cnt": len(data),
+            "n_features": len(X.columns),
+            "First_Feature": result_dict.get('1'),
+            "Second_Feature": result_dict.get('2'),
+            "Third_Feature": result_dict.get('3'),
+        })
         mlflow.log_artifact("decision_tree.png")
-        os.remove('decision_tree.png')
+
+        # ✅ 이미지 파일 삭제
+        os.remove("decision_tree.png")
         
         if Regression:
-            rmse = root_mean_squared_error(y, y_pred)
+            result = data[[ycol]].copy()
+            result["pred"] = y_pred
+
+            compare_real_pred_graph(result, x=None, yl=ycol, y2='pred', line=False, save=True)
+            mlflow.log_artifact("./images/compare_result.png")
+            os.remove("./images/compare_result.png")
+
+            rmse = mean_squared_error(y, y_pred, squared=False)
             r2 = r2_score(y, y_pred)
-            mlflow.log_metrics({'RSME': round(rmse, 3),
-                                'precision':round(r2, 2)} )
+
+            mlflow.log_param('model_info', "Regression Decision Tree")
+            mlflow.log_metrics({
+                'RMSE': round(rmse, 3),
+                'R2': round(r2, 2)
+            })
+
             print(f"RMSE: {rmse:.4f}")
             print(f"R2: {r2:.4f}")
+
         else:
-            f1 = f1_score(y, y_pred, average='weighted')
-            recall = recall_score(y, y_pred, average='weighted')
-            precision = precision_score(y, y_pred, average='weighted')
-            
-            cm = confusion_matrix(y, y_pred)
-            
-            plt.figure(figsize=(8, 6))
-            sns.heatmap(cm, annot=True, cmap='Blues', 
-                        xticklabels=model.classes_, yticklabels=model.classes_)
-            plt.ylabel("Actual")
-            plt.xlabel("Predicted")
-            plt.title("Confusion Matrix")
-            plt.savefig("confusion_matrix.png")
-            plt.close()
-            
-            mlflow.log_params({"features":xcol, 
-                               "n_features":len(xcol)})
-            mlflow.log_metrics({'f1':round(f1, 2),
-                                'recall':round(recall, 2), 
-                                'precision':round(precision, 2)})
+            accuracy, f1, recall, precision, cm = classification_result(model, y, y_pred)
+
+            mlflow.log_param('model_info', "Classification Decision Tree")
+            mlflow.log_metrics({
+                "Accuracy": round(accuracy, 2),
+                "F1": round(f1, 2),
+                "Recall": round(recall, 2),
+                "Precision": round(precision, 2)
+            })
+
             mlflow.log_artifact("confusion_matrix.png")
             os.remove("confusion_matrix.png")
-            
-            print(f'xcols: {xcol.tolist()}')
-            print(f'F1 Score: {f1:.4f}')
-            print(f'Recall: {recall:.4f}')
-            print(f'Precision: {precision:.4f}')
+
+            print(f"xcols: {xcol}")
+            print(f"F1 Score: {f1:.4f}")
+            print(f"Recall: {recall:.4f}")
+            print(f"Precision: {precision:.4f}")
             print("-" * 50)
-        
     return model
 
 def Random_Forest_Record(data:pd.DataFrame, xcol:list, ycol:str, experiment_name:str, Regression:bool=True, model_name:str=None):
@@ -256,3 +300,23 @@ def find_node_name(tree, feature_names, node_id, result_dict, count=1, max_nodes
     right_child = tree.children_right[node_id]
     if count <= max_nodes and right_child != -1:
         find_node_name(tree, feature_names, right_child, result_dict, count, max_nodes)
+
+def compare_real_pred_graph(data, x=None, y1=None, y2='pred', figsize=(8, 4), line=False, save=True):
+    plt.figure(figsize=figsize)
+    ax1 = plt.subplot(GridSpec(1, 1)[0])
+
+    if x is None:
+        data = data.reset_index()
+        x = 'index'
+
+    sns.scatterplot(data=data, x=x, y=y1, ax=ax1, label='real')
+    if line:
+        sns.lineplot(data=data, x=x, y=y1, ax=ax1)
+
+    ax2 = ax1.twinx()
+    sns.scatterplot(data=data, x=x, y=y2, ax=ax2, color='r', label='pred')
+    if line:
+        sns.lineplot(data=data, x=x, y=y2, ax=ax2, color='r')
+
+    plt.xticks(rotation=45)
+    (plt.savefig("./images/compare_result.png") if save else plt.show())
