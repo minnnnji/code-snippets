@@ -100,7 +100,7 @@ def Decision_Tree_Record(data:pd.DataFrame, xcol:list, ycol:str, experiment_name
             result = data[[ycol]].copy()
             result["pred"] = y_pred
 
-            compare_real_pred_graph(result, x=None, yl=ycol, y2='pred', line=False, save=True)
+            compare_real_pred_graph(result, x=None, y1=ycol, y2='pred', line=False, save=True)
             mlflow.log_artifact("./images/compare_result.png")
             os.remove("./images/compare_result.png")
 
@@ -176,10 +176,10 @@ def Random_Forest_Record(data:pd.DataFrame, xcol:list, ycol:str, experiment_name
         os.remove('feature_importance.png')
         
         if Regression:
-            rmse = root_mean_squared_error(y, y_pred)
+            rmse = mean_squared_error(y, y_pred, squared=False)
             r2 = r2_score(y, y_pred)
-            mlflow.log_metrics({'RSME': round(rmse, 3),
-                                'precision':round(r2, 2)} )
+            mlflow.log_metrics({'RMSE': round(rmse, 3),
+                                'R2': round(r2, 2)} )
             print(f"RMSE: {rmse:.4f}")
             print(f"R2: {r2:.4f}")
         else:
@@ -207,10 +207,10 @@ def OLS_Record(data:pd.DataFrame, xcol:list, ycol:str, experiment_name:str, mode
         y_pred = model.predict(X)
         
         # Metiric
-        rmse = root_mean_squared_error(y, y_pred)
+        rmse = mean_squared_error(y, y_pred, squared=False)
         r2 = r2_score(y, y_pred)
-        mlflow.log_metrics({'RSME': round(rmse, 3),
-                            'precision':round(r2, 2)} )
+        mlflow.log_metrics({'RMSE': round(rmse, 3),
+                            'R2': round(r2, 2)} )
         print(f"RMSE: {rmse:.4f}")
         print(f"R2: {r2:.4f}")
 
