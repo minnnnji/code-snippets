@@ -1,3 +1,8 @@
 test.ipynb
 작업폴더
 ignore
+TIL/LLM/.venv/
+TIL/LLM/clovax_raw/model.safetensors
+TIL/LLM/clovax_raw/
+TIL/LLM/package/
+*.pyc
